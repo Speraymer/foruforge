@@ -1,0 +1,11 @@
+build/
+work/
+node_modules/
+*.app-active.json
+*.ui-active.json
+*.ui-ready-*.json
+*.ui-server.log
+*.webview2-profile/
+*.execution-pack.json
+*.bak-*
+*.tmp-*
