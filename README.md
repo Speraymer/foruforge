@@ -17,13 +17,13 @@
 - Windows 10/11、Node.js 20+、PowerShell 7 (`pwsh`)、Microsoft Edge WebView2 Runtime。
 - 桌面宿主是未签名的 `native/ProjectConstraints.exe`；对应 C# 源码在 `native/CanvasWindow.cs`。本地服务仅监听 `127.0.0.1`。
 
-将仓库克隆或解压到 Codex 的 skills 目录，并保留目录名 `codex-project-constraint-canvas`：
+将仓库克隆或解压到 Codex 的 skills 目录，目录名使用 `foruforge`：
 
 ```powershell
-git clone https://github.com/Speraymer/foruforge.git "$env:CODEX_HOME\skills\codex-project-constraint-canvas"
+git clone https://github.com/Speraymer/foruforge.git "$env:CODEX_HOME\skills\foruforge"
 ```
 
-如果未设置 `CODEX_HOME`，把目标路径换成实际 Codex 配置目录的 `skills\codex-project-constraint-canvas`。在 Codex 主聊天中调用 `$codex-project-constraint-canvas`，说出项目目标；主聊天会先确认开发级别，再初始化本次会话的项目文件并打开画布。用户在画布提交后，回主聊天说「画布已提交」。
+如果未设置 `CODEX_HOME`，把目标路径换成实际 Codex 配置目录的 `skills\foruforge`。在 Codex 主聊天中调用 `$foruforge`，说出项目目标；主聊天会先确认开发级别，再初始化本次会话的项目文件并打开画布。用户在画布提交后，回主聊天说「画布已提交」。
 
 | 开发级别 | 适用范围 | 问题侧重 |
 |---|---|---|

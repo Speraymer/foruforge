@@ -1,5 +1,5 @@
 ---
-name: codex-project-constraint-canvas
+name: foruforge
 description: Open a standalone project constraint canvas after the main Codex chat fixes the goal and development level; review its decisions before coordinating separate chats.
 ---
 
