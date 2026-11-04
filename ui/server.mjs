@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync, renameSync, mkdi
 import { dirname, resolve, join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { createProject } from './catalog.mjs'
+import { createProject } from './plan.mjs'
 import { fresh, addNote, setLock, answerQuestion, questions, conflicts, exportPack, reviewGaps } from '../scripts/core.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -35,6 +35,21 @@ const staticFiles = new Map([['/','index.html'],['/app.js','app.js'],['/style.cs
 const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.jpg':'image/jpeg' }
 const allowedNoteFields = new Set(['title','type','description','priority','level','alternatives','forbiddenAlternatives','doneDefinition','verification','owner','status','external','cost','days','tags','color','nodeId'])
 const policyFields = new Set(Object.keys(fresh().policy))
+function syncNoteQuestion(doc, note) {
+  const linked = doc.customQuestions?.find(q => q.noteIds.includes(note.id))
+  if (note.type !== '问题') {
+    if (linked) doc.customQuestions.splice(doc.customQuestions.indexOf(linked),1)
+    return
+  }
+  const node = doc.nodes.find(n => n.id === note.nodeId), parent = doc.nodes.find(n => n.id === node?.parentId)
+  if (node?.kind !== '小项' || !parent) throw Error('问题便签必须位于小项下')
+  if (linked) {
+    linked.title = note.title; linked.impact = note.description || linked.impact
+    linked.group = parent.title + '/' + node.title; linked.category = parent.title
+  } else doc.customQuestions.push({id:'note:'+note.id,group:parent.title+'/'+node.title,category:parent.title,title:note.title,
+    level:'建议问',options:['确认此项','暂缓决定'],optionDetails:{'确认此项':{benefit:'把事项纳入执行范围',cost:'需要明确验收方式'},'暂缓决定':{benefit:'给团队留出调查时间',cost:'相关工作可能等待'}},
+    impact:note.description||'影响关联任务',defaultValue:'暂缓决定',noteIds:[note.id]})
+}
 const server = http.createServer(async (req,res) => {
   const host = req.headers.host || ''
   if (host !== `127.0.0.1:${server.address().port}`) return send(res,403,{error:'仅允许本机窗口访问'})
@@ -67,8 +82,8 @@ const server = http.createServer(async (req,res) => {
     if (url.pathname === '/api/start') {
       if (doc) return send(res,409,{error:'此项目文件已经初始化；请使用新的项目文件'})
       if (typeof input.goal !== 'string' || !input.goal.trim() || input.goal.length > 300) return send(res,400,{error:'主会话需确定 1–300 字目标'})
-      if (!['enterprise','small','coursework'].includes(input.profile)) return send(res,400,{error:'主会话需先确认开发级别'})
-      doc = createProject(input.goal,input.profile)
+      if (input.title !== undefined && (typeof input.title !== 'string' || !input.title.trim() || [...input.title.trim()].length > 8)) return send(res,400,{error:'展示标题需为 1–8 个字'})
+      doc = createProject(input.goal,input.profile || 'general',input.title,input.outline,input.requiredPolicyKeys)
       save(doc)
       return send(res,200,{doc,questions:questions(doc),conflicts:conflicts(doc),review:reviewGaps(doc)})
     }
@@ -100,10 +115,7 @@ const server = http.createServer(async (req,res) => {
       const note = addNote(doc,input.nodeId,input.title)
       if (['需求','约束','问题','验收','风险'].includes(input.type)) note.type = input.type
       if (input.level === '硬约束') setLock(doc,note.id,true)
-      if (note.type === '问题') {
-        const node = doc.nodes.find(n=>n.id===note.nodeId), parent=doc.nodes.find(n=>n.id===node.parentId)
-        doc.customQuestions.push({id:'note:'+note.id,group:parent.title+'/'+node.title,category:parent.title,title:note.title,level:'建议问',options:['确认此项','暂缓决定'],optionDetails:{'确认此项':{benefit:'把事项纳入执行范围',cost:'需要明确验收方式'},'暂缓决定':{benefit:'给团队留出调查时间',cost:'相关工作可能等待'}},impact:note.description||'影响关联任务',defaultValue:'暂缓决定',noteIds:[note.id]})
-      }
+      syncNoteQuestion(doc,note)
       save(doc)
       return send(res,200,{note,conflicts:conflicts(doc)})
     }
@@ -117,8 +129,7 @@ const server = http.createServer(async (req,res) => {
         if (key === 'level' && value === '硬约束') setLock(doc,note.id,true)
         else note[key] = value
       }
-      const linked = doc.customQuestions?.find(q=>q.noteIds.includes(note.id))
-      if (linked) { linked.title=note.title; linked.impact=note.description||linked.impact }
+      syncNoteQuestion(doc,note)
       save(doc)
       return send(res,200,{note,conflicts:conflicts(doc)})
     }

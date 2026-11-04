@@ -6,27 +6,35 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { createProject } from '../ui/catalog.mjs'
+import { createProject } from '../ui/plan.mjs'
 import { questions, answerQuestion } from '../scripts/core.mjs'
 
-test('expense goal expands into 18 grouped decisions', () => {
-  const doc = createProject('为小团队制作内部报销审批小程序')
+const outline = [
+  {title:'内容要求',sections:[{title:'立意',questions:[{title:'文章侧重哪层关系？',level:'建议问',impact:'决定论证主线',defaultValue:'本手是妙手的基础',options:[{value:'基础与创造',benefit:'紧扣材料',cost:'需避免空泛'},{value:'反思俗手',benefit:'有辨析空间',cost:'需说明前两者关系'}]}]}]},
+  {title:'交付',sections:[{title:'文件',questions:[{title:'交付哪些文件？',level:'阻塞必须问',impact:'决定文件制作',options:[]}]}]}
+]
+
+test('main chat outline determines branches, questions and answer form', () => {
+  const doc = createProject('写一篇本手妙手俗手作文','general','三手作文',outline)
+  assert.equal(doc.title,'三手作文')
+  assert.equal(doc.goal,'写一篇本手妙手俗手作文')
   const list = questions(doc)
-  assert.equal(list.length,18)
-  assert.equal(new Set(list.map(q=>q.group)).size,9)
-  assert.ok(list.every(q=>q.options.length>=2 && q.options.every(v=>q.optionDetails[v]?.benefit && q.optionDetails[v]?.cost)))
-  answerQuestion(doc,'q01','微信小程序','团队目前使用微信')
-  assert.equal(doc.answers.q01.reason,'团队目前使用微信')
+  assert.equal(list.length,2)
+  assert.equal(doc.nodes.filter(n=>n.kind==='大项').length,2)
+  assert.deepEqual(list.map(q=>q.group),['内容要求/立意','交付/文件'])
+  assert.deepEqual(list[0].options,['基础与创造','反思俗手'])
+  assert.equal(list[1].options.length,0)
+  assert.equal(doc.requiredPolicyKeys.join(','),'questionStrategy,deliveryFormat')
+  answerQuestion(doc,list[0].id,'基础与创造','紧扣题目')
+  assert.equal(doc.answers[list[0].id].reason,'紧扣题目')
 })
 
-test('development levels produce distinct language and boundaries', () => {
-  const goal='制作一个小团队报销审批应用'
-  const enterprise=createProject(goal,'enterprise'), small=createProject(goal,'small'), coursework=createProject(goal,'coursework')
-  for(const doc of [enterprise,small,coursework]) assert.equal(questions(doc).length,18)
-  assert.match(questions(enterprise).find(q=>q.id==='q03').title,/真实资金流/)
-  assert.match(questions(coursework).find(q=>q.id==='q06').title,/演示数据/)
-  assert.doesNotMatch(questions(coursework).map(q=>q.title).join(' '),/清结算|RPO|OIDC/)
-  assert.doesNotMatch(questions(small).map(q=>q.title).join(' '),/多聊天|派发/)
+test('invalid outline is rejected before any project is built', () => {
+  assert.throws(()=>createProject('目标','general','标题'),/目录/)
+  assert.throws(()=>createProject('目标','general','标题',[{title:'A',sections:[{title:'B',questions:[]}]}]),/问题/)
+  assert.throws(()=>createProject('目标','general','标题',outline,['dataExport']),/无法在画布/)
+  assert.throws(()=>createProject('目标','general','超过八个字的展示标题',outline),/展示标题/)
+  assert.throws(()=>createProject('目标','general','标题',[...outline,outline[0]]),/重复/)
 })
 
 test('local page API saves answers, blocks premature submission and enforces unlock audit', async () => {
@@ -52,18 +60,21 @@ test('local page API saves answers, blocks premature submission and enforces unl
     assert.equal((await request('/api/window',{action:'invalid'})).status,400)
     assert.equal((await request('/api/window',{action:'minimize'})).status,409)
     assert.equal((await request('/api/start',{goal:'测试'})).status,400)
-    const started = await request('/api/start',{goal:'为小团队制作内部报销审批小程序',profile:'small'})
-    assert.equal(started.body.questions.length,18)
-    assert.equal(started.body.review.policy.length,4)
+    assert.equal((await request('/api/start',{goal:'完整目标',profile:'general',title:'超过八个字的展示标题',outline})).status,400)
+    assert.equal((await request('/api/start',{goal:'完整目标',profile:'general',title:'短标题'})).status,400)
+    const started = await request('/api/start',{goal:'写一篇本手妙手俗手作文',profile:'general',title:'三手作文',outline})
+    assert.equal(started.body.doc.title,'三手作文')
+    assert.equal(started.body.questions.length,2)
+    assert.equal(started.body.review.policy.length,2)
     assert.equal((await request('/api/start',{goal:'另一个目标',profile:'enterprise',replace:true})).status,409)
     assert.equal((await request('/api/submit',{})).status,409)
-    assert.equal((await request('/api/answer',{id:'q01',value:'微信小程序',reason:'团队使用微信'})).status,200)
-    assert.equal((await request('/api/state')).body.doc.answers.q01.value,'微信小程序')
+    assert.equal((await request('/api/answer',{id:'q001',value:'基础与创造',reason:'紧扣题目'})).status,200)
+    assert.equal((await request('/api/state')).body.doc.answers.q001.value,'基础与创造')
     assert.equal((await request('/api/export',{kind:'task',format:'json'})).status,409)
     const exported=await request('/api/export',{kind:'task',format:'json',override:{by:'测试用户',reason:'仅测试默认策略'}})
     assert.equal(exported.status,200)
     const pack=JSON.parse(exported.body.content)
-    assert.equal(pack.questions.length,18)
+    assert.equal(pack.questions.length,2)
     assert.equal(pack.answerSummary.answered,1)
     assert.equal(pack.notes.length,0)
     assert.equal(pack.readyForExecution,false)
@@ -72,7 +83,7 @@ test('local page API saves answers, blocks premature submission and enforces unl
     assert.match(textExport.body.content,/未完成规划草案/)
     assert.match(textExport.body.content,/^# 给 AI 的项目约束/m)
     assert.doesNotMatch(textExport.body.content,/DSH|主会话|新对话|派发|当前用途|下一步|执行要求|不要|不得|不能据此|不代表|完成定义：；|[0-9a-f]{8}-[0-9a-f]{4}-/)
-    assert.equal((await request('/api/policy/confirm',{keys:['questionStrategy','externalPolicy']})).body.review.policy.length,2)
+    assert.equal((await request('/api/policy/confirm',{keys:['questionStrategy']})).body.review.policy.length,1)
     assert.equal((await request('/api/submit',{override:{by:'测试用户',reason:'先交主会话补充'}})).status,200)
     const nodeId=started.body.doc.nodes.find(n=>n.kind==='小项').id
     const created=await request('/api/note',{nodeId,title:'必须保留凭证',type:'约束',level:'硬约束'})
@@ -81,8 +92,15 @@ test('local page API saves answers, blocks premature submission and enforces unl
     const unlocked=await request('/api/lock',{id:created.body.note.id,locked:false,approver:'测试用户',reason:'方案变更'})
     assert.equal(unlocked.body.decisions.at(-1).action,'unlock')
     const custom=await request('/api/note',{nodeId,title:'是否需要纸质归档？',type:'问题',level:'软约束'})
-    assert.equal((await request('/api/state')).body.questions.length,19)
+    assert.equal((await request('/api/state')).body.questions.length,3)
     await request('/api/note/update',{id:custom.body.note.id,patch:{title:'纸质票据是否归档？'}})
     assert.ok((await request('/api/state')).body.questions.some(q=>q.title==='纸质票据是否归档？'))
+    const secondNode=started.body.doc.nodes.filter(n=>n.kind==='小项')[1].id
+    await request('/api/note/update',{id:custom.body.note.id,patch:{nodeId:secondNode}})
+    assert.equal((await request('/api/state')).body.questions.find(q=>q.id==='note:'+custom.body.note.id).group,'交付/文件')
+    await request('/api/note/update',{id:custom.body.note.id,patch:{type:'需求'}})
+    assert.equal((await request('/api/state')).body.questions.length,2)
+    await request('/api/note/update',{id:custom.body.note.id,patch:{type:'问题'}})
+    assert.equal((await request('/api/state')).body.questions.length,3)
   } finally { child.kill() }
 })

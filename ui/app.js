@@ -33,27 +33,46 @@ function rail(groups) {
   }).join('')}<div class="railFooter">每个光点对应一个待确认决策。<br><b>亮起</b>表示答案已保存，分支进度会同步更新。</div></aside>`
 }
 function graph(groups) {
-  const bigYs = [88,238,391,545], smallYs = [[45,122],[190,260,330],[395,472],[540,618]]
+  let cursor = 80
+  const placed = groups.map(g => {
+    const small = g.small.map(n => {
+      const count = qsFor(g.big.title+'/'+n.title).length
+      const height = Math.max(110, (count - 1) * 18 + 50)
+      const placed = { node:n, y:cursor + height / 2 }
+      cursor += height + 26
+      return placed
+    })
+    cursor += 80
+    return { ...g, smallPlaced:small, y:(small[0].y + small.at(-1).y) / 2 }
+  })
+  const height = Math.max(690, cursor + 30), rootY = 80
+  const ys = placed.flatMap(g=>g.smallPlaced.map(n=>n.y))
+  if(ys.some((y,i)=>!Number.isFinite(y)||(i>0&&y-ys[i-1]<110))) throw Error('树形布局节点间距不足')
+  const short = (value, limit) => [...value].length > limit ? [...value].slice(0, limit).join('') + '…' : value
+  const bigLabel = Math.max(0,...groups.map(g=>[...g.big.title].length)), smallLabel = Math.max(0,...groups.flatMap(g=>g.small.map(n=>[...n.title].length)))
+  const smallX = Math.max(611, 375 + Math.min(bigLabel,18)*16 + 40)
+  const questionX = Math.max(788, smallX + 20 + Math.min(smallLabel,18)*13 + 45)
+  const width = Math.max(930, questionX + 90)
   const paths=[], elements=[]
-  paths.push(`<path class="link" d="M140 323 C240 323 245 88 333 88"/>`)
-  for(let i=1;i<groups.length;i++) paths.push(`<path class="link" d="M140 323 C240 323 245 ${bigYs[i]} 333 ${bigYs[i]}"/>`)
-  elements.push(`<circle class="rootHalo" cx="130" cy="323" r="54"/><circle class="rootCircle" cx="130" cy="323" r="32"/><text class="rootText" x="130" y="328" text-anchor="middle">目标</text>`)
-  for(let i=0;i<groups.length;i++){
-    const g=groups[i], by=bigYs[i], color=g.color
+  paths.push(`<path class="link" d="M130 ${rootY} L130 ${placed.at(-1).y}"/>`)
+  for (const g of placed) paths.push(`<path class="link" d="M130 ${g.y} C220 ${g.y} 245 ${g.y} 333 ${g.y}"/>`)
+  elements.push(`<circle class="rootHalo" cx="130" cy="${rootY}" r="54"/><circle class="rootCircle" cx="130" cy="${rootY}" r="32"/><text class="rootText" x="130" y="${rootY+5}" text-anchor="middle">目标</text>`)
+  for (const g of placed) {
+    const by=g.y, color=g.color
     const bigQuestions=g.small.flatMap(n=>qsFor(g.big.title+'/'+n.title)), bigComplete=bigQuestions.length>0&&bigQuestions.every(answered)
-    elements.push(`<g class="bigBranch ${bigComplete?'complete':''} ${g.small.some(n=>n.id===selectedSub)?'current':''}" role="button" tabindex="0" data-group="${g.big.id}" data-sub="${g.small[0]?.id||''}" aria-label="${esc(g.big.title)}"><circle class="bigCircle" style="--node-color:${color}" cx="348" cy="${by}" r="16"/><text class="bigText" x="375" y="${by+5}">${esc(g.big.title)}</text></g>`)
-    g.small.forEach((n,j)=>{
-      const y=smallYs[i][j] ?? by+j*50, group=g.big.title+'/'+n.title, list=qsFor(group), active=selectedSub===n.id, complete=list.length>0&&list.every(answered)
-      paths.push(`<path class="link ${active?'selected':''}" data-branch="${n.id}" d="M365 ${by} C475 ${by} 500 ${y} 598 ${y}"/>`)
-      elements.push(`<g class="branch ${active?'selected':''} ${complete?'complete':''}" role="button" tabindex="0" data-sub="${n.id}" aria-label="${esc(group)}，已回答 ${list.filter(answered).length} 题"><circle class="smallCircle" cx="611" cy="${y}" r="11"/><text class="smallText" x="631" y="${y+5}">${esc(n.title)}</text></g>`)
+    elements.push(`<g class="bigBranch ${bigComplete?'complete':''} ${g.small.some(n=>n.id===selectedSub)?'current':''}" role="button" tabindex="0" data-group="${g.big.id}" data-sub="${g.small[0]?.id||''}" aria-label="${esc(g.big.title)}"><title>${esc(g.big.title)}</title><circle class="bigCircle" style="--node-color:${color}" cx="348" cy="${by}" r="16"/><text class="bigText" x="375" y="${by+5}">${esc(short(g.big.title,18))}</text></g>`)
+    g.smallPlaced.forEach(({node:n,y})=>{
+      const group=g.big.title+'/'+n.title, list=qsFor(group), active=selectedSub===n.id, complete=list.length>0&&list.every(answered)
+      paths.push(`<path class="link ${active?'selected':''}" data-branch="${n.id}" d="M365 ${by} C${(365+smallX)/2} ${by} ${(365+smallX)/2} ${y} ${smallX-13} ${y}"/>`)
+      elements.push(`<g class="branch ${active?'selected':''} ${complete?'complete':''}" role="button" tabindex="0" data-sub="${n.id}" aria-label="${esc(group)}，已回答 ${list.filter(answered).length} 题"><title>${esc(n.title)}</title><circle class="smallCircle" cx="${smallX}" cy="${y}" r="11"/><text class="smallText" x="${smallX+20}" y="${y+5}">${esc(short(n.title,18))}</text></g>`)
       list.forEach((q,k)=>{
         const qy=y+(k-(list.length-1)/2)*18
-        paths.push(`<path class="link ${active?'selected':''}" data-branch="${n.id}" d="M750 ${y} Q772 ${y} 785 ${qy}"/>`)
-        elements.push(`<g class="questionPoint ${active?'selected':''}" role="button" tabindex="0" data-question="${q.id}" data-sub="${n.id}" aria-label="${esc(q.title)}，${answered(q)?'已回答':'待回答'}"><circle class="questionDot ${answered(q)?'answered':''}" cx="788" cy="${qy}" r="4.5"/></g>`)
+        paths.push(`<path class="link ${active?'selected':''}" data-branch="${n.id}" d="M${questionX-38} ${y} Q${questionX-16} ${y} ${questionX-3} ${qy}"/>`)
+        elements.push(`<g class="questionPoint ${active?'selected':''}" role="button" tabindex="0" data-question="${q.id}" data-sub="${n.id}" aria-label="${esc(q.title)}，${answered(q)?'已回答':'待回答'}"><circle class="questionDot ${answered(q)?'answered':''}" cx="${questionX}" cy="${qy}" r="4.5"/></g>`)
       })
     })
   }
-  return `<main class="sky"><div class="skyHeader"><div class="section-kicker">Live decision map</div><h1>${esc(state.doc.goal)}</h1><p>沿分支查看问题，选择答案后光点会亮起。</p></div><button class="btn workspaceLaunch skyWorkspaceLaunch" data-workspace="open">全局设置（必填）</button><div class="graphWrap"><svg class="graph" viewBox="0 0 930 690" role="img" aria-label="项目目录与问题星图"><g>${paths.join('')}</g><g>${elements.join('')}</g></svg></div><div class="skyLegend"><span><i class="currentDot"></i>填写中</span><span><i></i>已完成</span><span><i class="mutedDot"></i>待确认</span></div></main>`
+  return `<div class="skyPane"><main class="sky"><div class="skyHeader"><div class="section-kicker">Live decision map</div><h1>${esc(state.doc.title || [...state.doc.goal].slice(0, 8).join(''))}</h1><p>沿分支查看问题，选择答案后光点会亮起。</p></div><button class="btn workspaceLaunch skyWorkspaceLaunch" data-workspace="open">全局设置</button><div class="graphWrap" data-height="${height}" data-width="${width}"><svg class="graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="项目目录与问题星图"><g>${paths.join('')}</g><g>${elements.join('')}</g></svg></div></main><div class="skyLegend"><span><i class="currentDot"></i>填写中</span><span><i></i>已完成</span><span><i class="mutedDot"></i>待确认</span></div></div>`
 }
 function questionCard(q, i) {
   const ans=state.doc.answers[q.id]||{}, meta=q.optionDetails||{}
@@ -76,6 +95,7 @@ function policyPanel() {
   const select=(label,key,options)=>`<label class="formLabel">${mark(key,label)}<select class="field" data-policy="${key}">${options.map(([v,title])=>`<option value="${esc(v)}" ${String(p[key]??'')===v?'selected':''}>${esc(title)}</option>`).join('')}</select></label>`
   const input=(label,key,placeholder='')=>`<label class="formLabel">${mark(key,label)}<input class="field" data-policy="${key}" placeholder="${esc(placeholder)}" value="${esc(p[key]??'')}"></label>`
   const yesNo=[['','未决定'],['true','允许'],['false','禁止']]
+  if (state.doc.profile === 'general') return `<h2>全局设置</h2><p class="subdesc">只确认与本任务相关的交付信息。</p>${missing.size?`<div class="notice">${missing.size} 项必填设置尚未确认。</div>`:''}${select('遇问题策略','questionStrategy',[['阻塞必停','阻塞必停'],['只记录继续','只记录继续'],['按默认继续','按默认继续'],['到节点再停','到节点再停']])}${input('交付格式','deliveryFormat')}${input('截止时间','deadline')}${input('预算上限','budget')}${input('验收与检查','docsTests')}<button class="btn small primary policyConfirm" data-confirm-policy>确认已填写的全局设置</button>`
   return `<h2>全局政策</h2><p class="subdesc">带“待确认”的项目需要填写或确认。保守预设也需明确确认。</p>${missing.size?`<div class="notice">${missing.size} 项必填全局政策尚未确认。建议逐项填写；留空时只能导出未完成草案。</div>`:''}${select('遇问题策略','questionStrategy',[['阻塞必停','阻塞必停'],['只记录继续','只记录继续'],['按默认继续','按默认继续'],['到节点再停','到节点再停']])}${select('外部依赖政策','externalPolicy',[['需审批','需审批'],['允许翻墙平台','允许翻墙平台'],['禁止翻墙平台','禁止翻墙平台'],['需替代方案','需替代方案']])}<div class="formGrid">${select('数据上传或出境','dataExport',yesNo)}${select('付费服务','allowPaid',yesNo)}${select('需翻墙平台','allowFirewallPlatform',yesNo)}${select('境外 API','allowOverseasApi',yesNo)}${select('非开源许可','allowNonOpenLicense',yesNo)}${input('预算上限','budget','金额或零新增费用')}${input('时间上限（天）','deadline','例如 20')}${input('技术栈限制','stack')}${input('部署环境','deployment')}${input('账号与权限','accountPermissions')}${input('合规与安全','compliance')}${input('交付格式','deliveryFormat')}${input('版本兼容','compatibility')}${input('文档和测试','docsTests')}${input('失败处理','failureStrategy')}${input('回滚与备份','rollbackBackup')}${input('不可逆操作审批','irreversibleApproval')}</div><button class="btn small primary policyConfirm" data-confirm-policy>确认已填写的全局设置</button>`
 }
 function exportPanel() {
@@ -103,8 +123,11 @@ function render() {
   if (!state.doc) {app.innerHTML=welcome();return}
   const oldScroll=tab===renderedTab?app.querySelector('.workspaceContent')?.scrollTop:0
   const groups=nodeGroups(), total=state.questions.length, done=state.questions.filter(answered).length
-  const label={enterprise:'生产级开发',small:'小范围应用',coursework:'作业演示'}[state.doc.profile]||'既有项目'
-  app.innerHTML=`<div class="app"><header class="topbar"><div class="brand"><span class="brandmark">✧</span><span><strong>项目约束</strong><small>PROJECT CONSTRAINTS</small></span></div><div class="goalFixed"><small>${label}</small><strong>${esc(state.doc.goal)}</strong></div><div class="top-progress"><strong>${done}/${total}</strong><small>已确认的问题</small></div></header><div class="layout">${rail(groups)}${graph(groups)}${inspector()}</div><footer class="footer"><span>目录 → 原子问题 → 决策记录 → 执行包</span><span><b>${state.conflicts.length}</b> 条提示 · 本机保存</span></footer>${workspace()}${reviewDialog()}</div>`
+  const label={enterprise:'生产级开发',small:'小范围应用',coursework:'作业演示',general:'通用任务'}[state.doc.profile]||'既有项目'
+  app.innerHTML=`<div class="app"><header class="topbar"><div class="brand"><span class="brandmark">✧</span><span><strong>项目约束</strong><small>PROJECT CONSTRAINTS</small></span></div><div class="goalFixed"><small>${label}</small><strong>${esc(state.doc.title || [...state.doc.goal].slice(0, 8).join(''))}</strong></div><div class="top-progress"><strong>${done}/${total}</strong><small>已确认的问题</small></div></header><div class="layout">${rail(groups)}${graph(groups)}${inspector()}</div><footer class="footer"><span>目录 → 原子问题 → 决策记录 → 执行包</span><span><b>${state.conflicts.length}</b> 条提示 · 本机保存</span></footer>${workspace()}${reviewDialog()}</div>`
+  const wrap=app.querySelector('.graphWrap'), svg=wrap.querySelector('svg'), height=Number(wrap.dataset.height), width=Number(wrap.dataset.width)
+  wrap.style.height=`${height+104}px`;wrap.style.minHeight='0'
+  wrap.style.width=`${width}px`;svg.style.width=`${width}px`;svg.style.height=`${height}px`;svg.style.minHeight='0'
   for(const el of app.querySelectorAll('.topbar,.layout,.footer')) el.inert=workspaceOpen
   if(app.querySelector('.workspaceContent')) app.querySelector('.workspaceContent').scrollTop=oldScroll||0
   renderedTab=tab
@@ -121,6 +144,10 @@ function selectSub(id, questionId, clickedElement) {
   if(flash){flash.classList.remove('flash');void flash.getBoundingClientRect();flash.classList.add('flash');setTimeout(()=>flash.classList.remove('flash'),800)}
   const panel=document.querySelector('.inspector')
   if(changed){panel.innerHTML=questionsPanel(currentGroup());panel.scrollTop=0}
+  if(changed && !clickedElement?.closest('.graph')) {
+    const sky=app.querySelector('.sky'), branch=app.querySelector(`.branch[data-sub="${CSS.escape(id)}"]`)
+    if(sky&&branch){const box=sky.getBoundingClientRect(), pos=branch.getBoundingClientRect();sky.scrollTo({top:sky.scrollTop+pos.top+pos.height/2-box.top-box.height/2,behavior:'smooth'})}
+  }
   if(questionId){const item=document.getElementById('question-'+questionId);if(item)panel.scrollTo({top:panel.scrollTop+item.getBoundingClientRect().top-panel.getBoundingClientRect().top-16,behavior:'smooth'})}
 }
 function saveStatus(id,text) {const el=document.querySelector(`[data-save-status="${CSS.escape(id)}"]`);if(el)el.textContent=text}

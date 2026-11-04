@@ -54,7 +54,7 @@ const q = (key, category, level, title, options, impact, noteIds = [], defaultVa
   ({ id: key, category, level, title, options, impact, noteIds, defaultValue })
 
 export function questions(doc) {
-  if (Array.isArray(doc.customQuestions) && doc.customQuestions.length) return doc.customQuestions
+  if (Array.isArray(doc.customQuestions) && (doc.dynamicOutline || doc.customQuestions.length)) return doc.customQuestions
   const p = doc.policy, notes = doc.notes, hard = notes.filter(n => n.locked || n.level === '硬约束')
   const list = [
     q('scope', '范围', '阻塞必须问', '本期必须完成哪些项？明确不做哪些项？', ['全部硬约束本期完成；其他按优先级', '指定本期清单'], '决定执行包的范围与排期', hard.map(n => n.id)),
@@ -101,7 +101,7 @@ export function answerQuestion(doc, questionId, value, reason = '') {
 const policyLabels = {
   questionStrategy:['遇问题策略','建议确认“阻塞必停”'], externalPolicy:['外部依赖政策','建议确认“需审批”'],
   dataExport:['数据能否上传或出境','建议明确禁止或许可范围'], deployment:['部署环境','建议明确本机、内网或生产环境'],
-  deliveryFormat:['交付格式','建议写明程序、源码和说明'], accountPermissions:['账号与权限','建议提供测试账号和授权范围'],
+  deliveryFormat:['交付格式','建议写明需要交付的文件或成果'], docsTests:['验收与检查','建议写明检查方式'], accountPermissions:['账号与权限','建议提供测试账号和授权范围'],
   budget:['预算上限','建议给出金额或明确零新增费用'], deadline:['时间上限','建议给出截止日或天数'],
   compliance:['合规与安全要求','建议提供组织现有标准'], rollbackBackup:['回滚与备份','建议说明恢复方法'],
   irreversibleApproval:['不可逆操作审批','建议指定审批人和触发条件']
@@ -114,9 +114,9 @@ const requiredPolicy = {
 }
 export function reviewGaps(doc) {
   const pendingQuestions=questions(doc).filter(x=>x.level==='阻塞必须问'&&!doc.answers[x.id]?.value)
-  const keys=requiredPolicy[doc.profile || 'small'] || requiredPolicy.general
+  const keys=doc.requiredPolicyKeys ?? requiredPolicy[doc.profile || 'small'] ?? requiredPolicy.general
   const pendingPolicy=keys.filter(key=>doc.policy[key]===null || doc.policy[key]===undefined || doc.policy[key]==='' || !doc.policyConfirmed?.[key])
-    .map(key=>({key,label:policyLabels[key][0],suggestion:policyLabels[key][1]}))
+    .map(key=>({key,label:policyLabels[key]?.[0]||key,suggestion:policyLabels[key]?.[1]||'请确认该设置'}))
   return {questions:pendingQuestions,policy:pendingPolicy}
 }
 
@@ -163,7 +163,7 @@ export function exportPack(doc, kind, format, override) {
   const executionOrder=doc.nodes.flatMap(node=>realNotes.filter(n=>n.nodeId===node.id).map(n=>n.id))
   const pack={schemaVersion:2,kind,goal:doc.goal,profile:doc.profile||'small',status:unresolved?'未完成规划草案':'约束记录',readyForExecution:false,
     answerSummary:{answered:allQuestions.filter(x=>x.answer).length,total:allQuestions.length,unansweredBlocking:gaps.questions.map(x=>x.id),unconfirmedRequiredPolicy:gaps.policy},
-    tree:doc.nodes,notes:realNotes,hardConstraints:realNotes.filter(n=>n.locked||n.level==='硬约束'),prohibitions:realNotes.filter(n=>n.level==='禁止项'),policy:doc.policy,policyConfirmed:doc.policyConfirmed||{},
+    tree:doc.nodes,notes:realNotes,hardConstraints:realNotes.filter(n=>n.locked||n.level==='硬约束'),prohibitions:realNotes.filter(n=>n.level==='禁止项'),policy:doc.policy,policyConfirmed:doc.policyConfirmed||{},requiredPolicyKeys:doc.requiredPolicyKeys||null,
     questions:allQuestions,conflicts:conflicts(doc),decisions:doc.decisions,exportOverride:decision,acceptance,executionOrder,defaultStrategy:doc.policy.questionStrategy}
   if (format==='json') return JSON.stringify(pack,null,2)
   const answered=allQuestions.filter(x=>x.answer), pending=allQuestions.filter(x=>!x.answer)
